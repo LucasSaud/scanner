@@ -1,0 +1,80 @@
+ENCODING_SIGNATURES: dict[str, dict] = {
+    "base64_decode_flag": {
+        "pattern": r"base64\s*(?:-d|--decode|/d|-D)",
+        "severity": "MEDIUM", "score": 50.0,
+        "category": "obfuscation",
+        "description": "Decodificação base64 - possível payload ofuscado",
+    },
+    "base64_echo_pipe": {
+        "pattern": r"echo\s+[A-Za-z0-9+/=]{30,}\s*\|",
+        "severity": "HIGH", "score": 70.0,
+        "category": "obfuscation",
+        "description": "Pipe de string base64 longa",
+    },
+    "hex_decode": {
+        "pattern": r"(?:xxd\s+-r|od\s+-A\s+x|printf\s+['\"])\\x[0-9a-fA-F]{2}",
+        "severity": "MEDIUM", "score": 55.0,
+        "category": "obfuscation",
+        "description": "Decodificação hex - possível payload ofuscado",
+    },
+    "openssl_decrypt": {
+        "pattern": r"openssl\s+(?:enc|aes|des|rc4|bf)\s+(?:-d|--decode)",
+        "severity": "HIGH", "score": 75.0,
+        "category": "obfuscation",
+        "description": "Descriptografia via openssl - possível payload ofuscado",
+    },
+    "buffer_from_base64": {
+        "pattern": r"Buffer\.from\s*\([^,]+,\s*['\"]base64['\"]",
+        "severity": "HIGH", "score": 70.0,
+        "category": "obfuscation",
+        "description": "Buffer.from com base64 decode em JavaScript",
+    },
+    "atob_usage": {
+        "pattern": r"\batob\s*\(",
+        "severity": "MEDIUM", "score": 45.0,
+        "category": "obfuscation",
+        "description": "Uso de atob() - decode base64 em JS",
+    },
+    "frombase64_python": {
+        "pattern": r"(?:base64\.(?:b64decode|urlsafe_b64decode)|bytes\.fromhex)",
+        "severity": "MEDIUM", "score": 50.0,
+        "category": "obfuscation",
+        "description": "Decode base64 em Python",
+    },
+    "gzip_decompress": {
+        "pattern": r"(?:gzip\.decompress|zlib\.decompress|decompress\s*\()",
+        "severity": "MEDIUM", "score": 55.0,
+        "category": "obfuscation",
+        "description": "Decompressão - possível payload comprimido",
+    },
+    "char_code_assembly": {
+        "pattern": r"(?:String\.fromCharCode|fromCharCode)\s*\([0-9, ]{20,}\)",
+        "severity": "HIGH", "score": 70.0,
+        "category": "obfuscation",
+        "description": "Montagem de string via fromCharCode - ofuscação JS",
+    },
+    "char_code_at": {
+        "pattern": r"\.charCodeAt\s*\([^)]+\)",
+        "severity": "MEDIUM", "score": 45.0,
+        "category": "obfuscation",
+        "description": "Uso de charCodeAt - possível ofuscação",
+    },
+    "array_join_empty": {
+        "pattern": r"\[\s*['\"][\w'\" ,]+['\"]\s*\]\s*\.\s*join\s*\(\s*['\"]['\"]\s*\)",
+        "severity": "HIGH", "score": 70.0,
+        "category": "obfuscation",
+        "description": "Array.join('') - montagem de string a partir de fragmentos",
+    },
+    "xor_encoding": {
+        "pattern": r"(?:\^|0x[0-9a-fA-F]{2})\s*(?:\^|0x[0-9a-fA-F]{2})",
+        "severity": "MEDIUM", "score": 50.0,
+        "category": "obfuscation",
+        "description": "Operações XOR em cadeia - possível encode",
+    },
+    "multi_layer_encode": {
+        "pattern": r"(?:base64|hex|decode|decrypt|gunzip|decompress).*(?:base64|hex|decode|decrypt|gunzip|decompress)",
+        "severity": "HIGH", "score": 75.0,
+        "category": "obfuscation",
+        "description": "Múltiplas camadas de encode/decode",
+    },
+}

@@ -1,0 +1,92 @@
+COMMAND_SIGNATURES: dict[str, dict] = {
+    "download_execute": {
+        "commands": ["curl", "wget", "fetch", "iwr", "Invoke-WebRequest"],
+        "severity": "HIGH", "score": 80.0,
+        "category": "supply_chain",
+        "description": "Comando de download - possível obtenção de payload",
+    },
+    "shell_spawn": {
+        "commands": ["bash", "sh", "zsh", "fish", "dash", "ksh"],
+        "severity": "MEDIUM", "score": 50.0,
+        "category": "command_injection",
+        "description": "Spawn de shell",
+    },
+    "elevation": {
+        "commands": ["sudo", "su", "pkexec", "doas", "runas"],
+        "severity": "HIGH", "score": 70.0,
+        "category": "privilege_escalation",
+        "description": "Elevação de privilégio",
+    },
+    "permission_change": {
+        "commands": ["chmod", "chown", "icacls", "takeown"],
+        "severity": "MEDIUM", "score": 50.0,
+        "category": "persistence",
+        "description": "Alteração de permissões",
+    },
+    "execution_python": {
+        "commands": ["python -c", "python3 -c", "python -m"],
+        "severity": "HIGH", "score": 70.0,
+        "category": "command_injection",
+        "description": "Execução inline de Python",
+    },
+    "execution_node": {
+        "commands": ["node -e", "node -p"],
+        "severity": "HIGH", "score": 70.0,
+        "category": "command_injection",
+        "description": "Execução inline de Node.js",
+    },
+    "execution_perl": {
+        "commands": ["perl -e"],
+        "severity": "MEDIUM", "score": 60.0,
+        "category": "command_injection",
+        "description": "Execução inline de Perl",
+    },
+    "execution_ruby": {
+        "commands": ["ruby -e"],
+        "severity": "MEDIUM", "score": 60.0,
+        "category": "command_injection",
+        "description": "Execução inline de Ruby",
+    },
+    "network_tools": {
+        "commands": ["nc", "ncat", "socat", "telnet", "ssh", "nslookup", "dig", "host"],
+        "severity": "MEDIUM", "score": 55.0,
+        "category": "network",
+        "description": "Ferramentas de rede",
+    },
+    "powershell_exec": {
+        "commands": ["powershell -c", "powershell -Command", "pwsh -c"],
+        "severity": "HIGH", "score": 75.0,
+        "category": "command_injection",
+        "description": "Execução inline de PowerShell",
+    },
+    "wmic_abuse": {
+        "commands": ["wmic", "wmic.exe"],
+        "severity": "HIGH", "score": 70.0,
+        "category": "command_injection",
+        "description": "WMIC - execução de comando no Windows",
+    },
+    "certutil_decode": {
+        "commands": ["certutil -decode", "certutil -urlcache"],
+        "severity": "HIGH", "score": 75.0,
+        "category": "obfuscation",
+        "description": "Certutil usado para decode/download",
+    },
+    "bitsadmin_download": {
+        "commands": ["bitsadmin /transfer", "bitsadmin /rawreturn"],
+        "severity": "HIGH", "score": 75.0,
+        "category": "supply_chain",
+        "description": "Bitsadmin download (Windows)",
+    },
+    "reg_modify": {
+        "commands": ["reg add", "reg import"],
+        "severity": "HIGH", "score": 70.0,
+        "category": "persistence",
+        "description": "Modificação do registro do Windows",
+    },
+    "schtasks": {
+        "commands": ["schtasks /create", "schtasks /change"],
+        "severity": "HIGH", "score": 80.0,
+        "category": "persistence",
+        "description": "Criação de tarefa agendada no Windows",
+    },
+}

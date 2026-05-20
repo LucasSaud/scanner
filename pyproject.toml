@@ -1,0 +1,26 @@
+[project]
+name = "vscode-security-scanner"
+version = "3.4.0"
+description = "Detecta malware em projetos VSCode e vetores de ataque comuns"
+requires-python = ">=3.9"
+dependencies = [
+    "customtkinter>=5.2.2",
+    "tomli>=1.1.0,<2.0.0; python_version < '3.11'",
+    "pyyaml>=6.0",
+    "structlog>=24.1.0",
+    "reportlab>=4.0.0",
+]
+
+[project.optional-dependencies]
+ast = ["esprima>=1.1.0"]
+
+[project.urls]
+Repository = "https://github.com/lucas/scanner"
+
+[tool.setuptools.packages.find]
+include = ["scanner_engine*", "gui*", "models*", "cli*", "main*", "security_scanner*"]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.20.0",
+]

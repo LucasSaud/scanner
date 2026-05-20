@@ -1,0 +1,135 @@
+[suspicious]
+execution_terms = [
+    "curl", "wget", "fetch",
+    "bash", "sh", "zsh", "fish",
+    "powershell", "pwsh", "cmd",
+    "chmod", "nohup", "eval",
+    "base64",
+    "python3 -c", "python -c",
+    "node -e", "node -p",
+    "perl -e",
+    "ruby -e",
+    "ld_preload", "dyld_insert_libraries",
+    "nslookup", "dig", "host",
+    "telnet", "nc",
+    "socat", "ncat",
+    "msfvenom", "mimikatz",
+]
+url_patterns = ["https?://", "ftp://"]
+file_extensions_in_vscode_root = [
+    ".sh", ".js", ".py", ".exe", ".bat", ".ps1", ".rb", ".pl",
+]
+
+[npm]
+auto_execution_hooks = [
+    "preinstall", "install", "postinstall",
+    "prepare", "prepublish", "prepublishOnly",
+]
+
+[devcontainer]
+auto_execution_keys = [
+    "postCreateCommand", "postStartCommand",
+    "postAttachCommand", "initializeCommand",
+]
+
+[vscode]
+dangerous_settings_keys = [
+    "terminal.integrated.shell.linux",
+    "terminal.integrated.shell.osx",
+    "terminal.integrated.shell.windows",
+    "terminal.integrated.profiles.linux",
+    "terminal.integrated.profiles.osx",
+    "terminal.integrated.profiles.windows",
+    "git.path",
+    "python.defaultInterpreterPath",
+    "python.pythonPath",
+]
+
+[detection]
+entropy_threshold = 4.5
+
+[scan]
+excluded_dirs = [
+    ".venv", "venv", "env",
+    "node_modules", "site-packages",
+    "__pycache__", ".tox", ".eggs",
+    "dist", "build", ".mypy_cache", ".pytest_cache",
+    ".git", ".svn", ".hg",
+]
+max_file_size_bytes = 5242880
+parallel_workers = 4
+
+[docker]
+suspicious_volume_paths = [
+    "/root/.ssh", "/root/.aws", "/root/.config",
+    "/etc/shadow", "/etc/passwd", "/etc/sudoers",
+    "/var/run/docker.sock",
+    "/", "/bin", "/usr/bin",
+    "/root/.kube", "/root/.docker",
+]
+suspicious_cap_add = [
+    "ALL", "SYS_ADMIN", "SYS_MODULE",
+    "SYS_RAWIO", "SYS_PTRACE", "NET_ADMIN",
+    "SYS_BOOT", "SYSLOG",
+]
+
+[env]
+sensitive_keys = [
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID",
+    "GCP_SERVICE_KEY", "GOOGLE_API_KEY",
+    "DB_PASSWORD", "DATABASE_URL",
+    "API_KEY", "API_SECRET", "SECRET_KEY",
+    "TOKEN", "PASSWORD", "PASSWD",
+    "PRIVATE_KEY", "SSH_KEY",
+    "STRIPE_SECRET", "STRIPE_KEY",
+    "JWT_SECRET", "JWT_TOKEN",
+    "SLACK_TOKEN", "SLACK_WEBHOOK",
+    "GITHUB_TOKEN", "NPM_TOKEN",
+]
+
+[misc]
+dangerous_env_keys = [
+    "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+    "PATH", "PYTHONPATH", "NODE_PATH",
+    "LD_LIBRARY_PATH", "RUBYLIB",
+    "PERL5LIB", "R_HOME",
+]
+
+[ioc]
+domains = [
+    "ngrok\\.io",
+    "pastebin\\.com",
+    "gist\\.github\\.com",
+    "discord(?:app)?\\.com/api/webhooks",
+    "api\\.telegram\\.org",
+    "requestbin\\.com",
+    "webhook\\.site",
+    "hookbin\\.com",
+    "burpcollaborator\\.net",
+    "interactsh\\.com",
+    "oastify\\.com",
+    "dnslog\\.cn",
+]
+ips = [
+    "10\\.0\\.0\\.",
+    "172\\.16\\.",
+    "192\\.168\\.",
+    "169\\.254\\.",
+]
+suspicious_tlds = [
+    "\\.tk$", "\\.ml$", "\\.ga$", "\\.cf$", "\\.gq$",
+]
+
+[bundler]
+high_signal_patterns = [
+    { pattern = "child_process", label = "child_process import/referencia", score = 8.5 },
+    { pattern = "exec\\s*\\(.*curl|exec\\s*\\(.*wget|exec\\s*\\(.*base64", label = "exec com download/base64", score = 9.5 },
+    { pattern = "exec\\s*\\(", label = "chamada exec()", score = 8.0 },
+    { pattern = "spawn\\s*\\(", label = "chamada spawn()", score = 8.0 },
+    { pattern = "fromCharCode|join\\s*\\(\\s*['\"]['\"]\\s*\\)", label = "ofuscacao JS em config", score = 9.0 },
+    { pattern = "writeFileSync\\s*\\(|writeFile\\s*\\(", label = "escrita de arquivo sincrona", score = 8.5 },
+    { pattern = "process\\.env\\[|net\\.connect\\s*\\(|dns\\.resolve\\s*\\(|dns\\.lookup\\s*\\(", label = "exfiltracao/env/dns", score = 8.5 },
+    { pattern = "base64.*decode|Buffer\\.from\\s*\\(.*base64", label = "base64 decode em config", score = 8.5 },
+    { pattern = "require\\s*\\(['\"]child_process['\"]", label = "require child_process", score = 8.5 },
+]
