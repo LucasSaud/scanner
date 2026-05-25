@@ -1,4 +1,6 @@
 import threading
+import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -6,22 +8,22 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from models import (
+from security_scanner.models import (
     DetectionFinding,
+    ScanResult,
     SEVERITY_BADGE_BG_COLOR,
     SEVERITY_BADGE_TEXT_COLOR,
     SEVERITY_ICON,
     SEVERITY_STRIP_COLOR,
     SEVERITY_SORT_PRIORITY,
 )
-from scanner_engine import (
-    scan_project_directory,
-    scan_global_vscode_directory,
-    export_findings_report_as_json,
-    get_last_excluded_dir_types,
-)
+from security_scanner.scanners import ScannerManager
+from security_scanner.reporting import JSONReport, MarkdownReport, HTMLReport, PDFReport
+from security_scanner.telemetry import telemetry_logger, scan_metrics
+from security_scanner.cache import scan_cache
+
 from gui.theme import (
-    ACCENT, DANGER, SUCCESS,
+    ACCENT, DANGER, SUCCESS, WARNING,
     BG, SURFACE, SURFACE2,
     TEXT, TEXT_MUTED, TEXT_DIM,
     BORDER, CARD_BG, CARD_HOVER, CARD_BORDER,
@@ -32,6 +34,12 @@ from gui.theme import (
     SWITCH_BG,
 )
 from gui.widgets import FindingCard, SkeletonCard
+from gui.dashboard import RiskMeter, StatsFrame
+from gui.correlation_view import CorrelationListView
+from gui.timeline import TimelineView
+from gui.file_inspector import FileInspectorDialog
+from gui.ioc_inspector import IOCInspectorDialog
+from gui.settings import SettingsDialog
 
 
 class VSCodeSecurityScannerApp(ctk.CTk):
@@ -43,11 +51,14 @@ class VSCodeSecurityScannerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self._all_findings: list[DetectionFinding] = []
+        self._last_result: Optional[ScanResult] = None
         self._is_scan_running = False
-        self._scan_stop_event = threading.Event()
         self._selected_scan_directory = ctk.StringVar(value="")
         self._should_scan_global_vscode = ctk.BooleanVar(value=True)
         self._skeleton_cards: list[SkeletonCard] = []
+        self._current_finding: Optional[DetectionFinding] = None
+        self._selected_card: Optional[FindingCard] = None
+        self._scanner_manager = ScannerManager()
 
         self.title(self.APP_TITLE)
         self.geometry(self.WINDOW_GEOMETRY)
@@ -101,9 +112,11 @@ class VSCodeSecurityScannerApp(ctk.CTk):
             controls_frame,
             textvariable=self._selected_scan_directory,
             placeholder_text="Selecione ou cole o caminho da pasta...",
+            placeholder_text_color=TEXT_MUTED,
             width=300,
             height=34,
             font=ctk.CTkFont(size=12),
+            fg_color=CARD_BG,
             border_color=BORDER,
         )
         directory_entry.grid(row=1, column=0, padx=(0, 6))
@@ -222,7 +235,25 @@ class VSCodeSecurityScannerApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color=TEXT_MUTED,
         )
-        self._scan_progress_percentage_label.pack(padx=16, pady=(0, 16))
+        self._scan_progress_percentage_label.pack(padx=16, pady=(0, 4))
+        self._scan_current_file_label = ctk.CTkLabel(
+            sidebar,
+            text="",
+            font=ctk.CTkFont(size=9),
+            text_color=TEXT_DIM,
+            wraplength=168,
+            justify="left",
+            anchor="w",
+        )
+        self._scan_current_file_label.pack(padx=16, pady=(0, 12), fill="x")
+
+        # Risk meter
+        self._risk_meter = RiskMeter(sidebar)
+        self._risk_meter.pack(padx=16, pady=(0, 8), fill="x")
+
+        # Stats frame
+        self._stats_frame = StatsFrame(sidebar)
+        self._stats_frame.pack(padx=16, pady=(0, 8), fill="x")
 
         # Divider
         ctk.CTkFrame(sidebar, height=1, fg_color=BORDER).pack(
@@ -230,9 +261,9 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         )
 
         # Action buttons
-        ctk.CTkButton(
+        self._export_btn = ctk.CTkButton(
             sidebar,
-            text="Exportar JSON",
+            text="Exportar",
             width=168,
             height=32,
             font=ctk.CTkFont(size=12),
@@ -241,8 +272,23 @@ class VSCodeSecurityScannerApp(ctk.CTk):
             hover_color=SURFACE2,
             border_width=1,
             border_color=BORDER,
-            command=self._export_current_findings_as_json,
-        ).pack(padx=16, pady=3)
+            command=self._export_current_findings,
+        )
+        self._export_btn.pack(padx=16, pady=3)
+        self._ioc_btn = ctk.CTkButton(
+            sidebar,
+            text="IOC Inspector",
+            width=168,
+            height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
+            text_color=TEXT,
+            hover_color=SURFACE2,
+            border_width=1,
+            border_color=BORDER,
+            command=self._open_ioc_inspector,
+        )
+        self._ioc_btn.pack(padx=16, pady=3)
         ctk.CTkButton(
             sidebar,
             text="Limpar resultados",
@@ -285,7 +331,6 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         )
         self._findings_scrollable_list.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
         self._findings_scrollable_list.grid_columnconfigure(0, weight=1)
-        self._enable_scroll_on_frame(self._findings_scrollable_list)
         self._empty_state_placeholder_label = ctk.CTkLabel(
             self._findings_scrollable_list,
             text="Nenhum scan realizado ainda.\nEscolha uma pasta e clique em Iniciar Scan.",
@@ -298,16 +343,40 @@ class VSCodeSecurityScannerApp(ctk.CTk):
     def _build_right_finding_detail_panel(self, parent):
         panel = ctk.CTkFrame(parent, corner_radius=10, fg_color=SURFACE)
         panel.grid(row=1, column=1, sticky="nsew")
-        panel.grid_rowconfigure(1, weight=1)
+        panel.grid_rowconfigure(0, weight=1)
         panel.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
+
+        self._detail_tabview = ctk.CTkTabview(
             panel,
-            text="Detalhe do Achado",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="transparent",
+            segmented_button_fg_color=SURFACE2,
+            segmented_button_selected_color=ACCENT,
             text_color=TEXT,
-        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
+        )
+        self._detail_tabview.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+
+        # Detail tab
+        detail_tab = self._detail_tabview.add("Detalhe")
+        detail_tab.grid_rowconfigure(1, weight=1)
+        detail_tab.grid_columnconfigure(0, weight=1)
+
+        view_file_btn = ctk.CTkButton(
+            detail_tab,
+            text="Ver Arquivo",
+            width=100,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color="transparent",
+            text_color=TEXT,
+            hover_color=SURFACE2,
+            border_width=1,
+            border_color=BORDER,
+            command=self._open_file_inspector,
+        )
+        view_file_btn.grid(row=0, column=0, sticky="e", padx=4, pady=(4, 0))
+
         self._finding_detail_textbox = ctk.CTkTextbox(
-            panel,
+            detail_tab,
             font=ctk.CTkFont(family="Menlo", size=12),
             wrap="word",
             state="disabled",
@@ -316,8 +385,21 @@ class VSCodeSecurityScannerApp(ctk.CTk):
             border_width=1,
             border_color=CARD_BORDER,
         )
-        self._finding_detail_textbox.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self._enable_scroll_on_textbox(self._finding_detail_textbox)
+        self._finding_detail_textbox.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
+
+        # Timeline tab
+        timeline_tab = self._detail_tabview.add("Timeline")
+        timeline_tab.grid_rowconfigure(0, weight=1)
+        timeline_tab.grid_columnconfigure(0, weight=1)
+        self._timeline_view = TimelineView(timeline_tab)
+        self._timeline_view.grid(row=0, column=0, sticky="nsew")
+
+        # Correlations tab
+        corr_tab = self._detail_tabview.add("Correlacoes")
+        corr_tab.grid_rowconfigure(0, weight=1)
+        corr_tab.grid_columnconfigure(0, weight=1)
+        self._correlation_view = CorrelationListView(corr_tab)
+        self._correlation_view.grid(row=0, column=0, sticky="nsew")
 
     def _build_bottom_status_bar(self):
         bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -364,7 +446,7 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         if self._is_scan_running:
             return
         self._is_scan_running = True
-        self._scan_stop_event.clear()
+        self._scanner_manager.reset_stop()
         self._scan_action_button.configure(
             text="\u23f9  Parar",
             fg_color=DANGER,
@@ -385,7 +467,7 @@ class VSCodeSecurityScannerApp(ctk.CTk):
     def _stop_scan(self):
         if not self._is_scan_running:
             return
-        self._scan_stop_event.set()
+        self._scanner_manager.stop()
         self._scan_action_button.configure(
             state="disabled",
             text="Parando...",
@@ -395,35 +477,36 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         self._update_status_bar_message("Parando a varredura...")
 
     def _execute_full_scan_and_render_results(self):
-        collected_findings: list[DetectionFinding] = []
-        if self._should_scan_global_vscode.get():
-            self._update_status_bar_message("Analisando ~/.vscode/ global...")
-            collected_findings.extend(
-                scan_global_vscode_directory(self._scan_stop_event)
-            )
         target_directory = self._selected_scan_directory.get().strip() or "."
         self._update_status_bar_message(f"Varrendo: {target_directory}")
 
-        def on_progress_update(ratio: float):
+        def on_progress(path_label: str, current: int, total: int):
+            ratio = current / total if total > 0 else 0
+            short = Path(path_label).name if path_label else ""
             self.after(0, lambda: self._scan_progress_bar.set(ratio))
             self.after(0, lambda: self._scan_progress_percentage_label.configure(
                 text=f"{int(ratio * 100)}%"
             ))
+            self.after(0, lambda s=short: self._scan_current_file_label.configure(text=s))
 
-        collected_findings.extend(
-            scan_project_directory(
-                target_directory, on_progress_update, self._scan_stop_event
-            )
+        result = self._scanner_manager.scan_path(
+            Path(target_directory),
+            progress_callback=on_progress,
+            include_global=self._should_scan_global_vscode.get(),
         )
+
+        self._last_result = result
         sorted_findings = sorted(
-            collected_findings,
+            result.findings,
             key=lambda f: SEVERITY_SORT_PRIORITY.get(f.severity, 9),
         )
-        self.after(0, lambda: self._render_scan_results_on_ui(sorted_findings))
+        self.after(0, lambda: self._render_scan_results_on_ui(sorted_findings, result))
 
-    def _render_scan_results_on_ui(self, findings: list[DetectionFinding]):
+    def _render_scan_results_on_ui(self, findings: list[DetectionFinding], result: Optional[ScanResult] = None):
         self._remove_skeleton_loaders()
         self._all_findings = findings
+        self._finding_cards: list[FindingCard] = []
+        sr = result or self._last_result
         total = len(findings)
         self._findings_count_badge.configure(text=f"{total}" if total else "")
         if not findings:
@@ -439,15 +522,38 @@ class VSCodeSecurityScannerApp(ctk.CTk):
                 card = FindingCard(
                     self._findings_scrollable_list,
                     finding,
-                    on_click_callback=self._display_selected_finding_detail,
+                    on_click_callback=self._on_finding_card_click,
                 )
                 card.grid(row=index, column=0, sticky="ew", padx=4, pady=3)
+                self._finding_cards.append(card)
             self._findings_scrollable_list.grid_columnconfigure(0, weight=1)
+            # Scroll to top after populating
+            self.after(50, lambda: self._findings_scrollable_list._parent_canvas.yview_moveto(0))
         self._update_severity_count_labels_in_sidebar(findings)
+
+        # Update dashboard widgets
+        if sr:
+            sc = sr.severity_counts
+            if sc:
+                counts_dict = sc.to_dict()
+                self._risk_meter.set_risk(sr.risk_score)
+                self._stats_frame.update(
+                    total=sr.total_findings,
+                    critical=sc.critical,
+                    high=sc.high,
+                    files=sr.total_files,
+                )
+
+        # Update timeline and correlations
+        finding_dicts = [f.to_dict() for f in findings]
+        self._timeline_view.set_findings(finding_dicts)
+        if sr and sr.correlations:
+            self._correlation_view.set_events(sr.correlations)
+
         self._scan_progress_bar.set(1.0)
         self._scan_progress_percentage_label.configure(text="100%")
+        self._scan_current_file_label.configure(text="")
         self._is_scan_running = False
-        self._scan_stop_event.clear()
         self._scan_action_button.configure(
             state="normal",
             text="Iniciar Scan",
@@ -464,31 +570,49 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         severity_summary = " \u00b7 ".join(
             f"{count} {sev}" for sev, count in counts_by_severity.items() if count > 0
         ) or "nenhum"
-        excluded_types = get_last_excluded_dir_types()
-        exclusion_note = ""
-        if excluded_types:
-            names = ", ".join(sorted(excluded_types))
-            exclusion_note = f" | Ignorados: {len(excluded_types)} diretório(s) de dependência ({names})"
 
         self._update_status_bar_message(
-            f"Scan conclu\u00eddo \u2014 {total} achado(s): {severity_summary}{exclusion_note}"
+            f"Scan conclu\u00eddo \u2014 {total} achado(s): {severity_summary}"
         )
 
+    def _on_finding_card_click(self, finding: DetectionFinding):
+        for card in getattr(self, "_finding_cards", []):
+            try:
+                is_this = card.finding is finding
+                card.set_selected(is_this)
+                if is_this:
+                    self._selected_card = card
+            except Exception:
+                pass
+        self._display_selected_finding_detail(finding)
+
     def _display_selected_finding_detail(self, finding: DetectionFinding):
+        self._current_finding = finding
+        self._detail_tabview.set("Detalhe")
+
         icon = SEVERITY_ICON[finding.severity]
-        severity_color = SEVERITY_STRIP_COLOR[finding.severity]
-        severity_color_str = severity_color[1] if severity_color[1].startswith("#") else severity_color[0]
+        line_info = f"  Line        {finding.line}" if finding.line else ""
+        mitre_info = f"  MITRE       {finding.mitre_technique}" if finding.mitre_technique else ""
+        score_info = f"  Score       {round(finding.score, 1)}/100"
         detail_lines = [
-            f"{icon}  {finding.severity}",
+            f"{icon}  [{finding.severity}]  {score_info.strip()}",
             "",
             f"  File        {finding.file_path}",
-            f"  Description {finding.description}",
+        ]
+        if line_info:
+            detail_lines.append(line_info)
+        if mitre_info:
+            detail_lines.append(mitre_info)
+        detail_lines += [
+            f"  Category    {finding.category}",
+            "",
+            f"  {finding.description}",
             "",
             "\u2500" * 48,
             "Evidence",
             "\u2500" * 48,
             "",
-            finding.evidence,
+            finding.evidence or "(sem evid\u00eancia)",
         ]
         if finding.detected_terms:
             detail_lines += [
@@ -499,6 +623,15 @@ class VSCodeSecurityScannerApp(ctk.CTk):
                 "",
                 ", ".join(finding.detected_terms),
             ]
+        if finding.recommendation:
+            detail_lines += [
+                "",
+                "\u2500" * 48,
+                "Recommendation",
+                "\u2500" * 48,
+                "",
+                finding.recommendation,
+            ]
         self._finding_detail_textbox.configure(state="normal")
         self._finding_detail_textbox.delete("1.0", "end")
         self._finding_detail_textbox.insert("1.0", "\n".join(detail_lines))
@@ -507,15 +640,16 @@ class VSCodeSecurityScannerApp(ctk.CTk):
     def _show_info_menu(self):
         menu = ctk.CTkToplevel(self)
         menu.title("")
-        menu.geometry("160x140+0+0")
+        menu.geometry("160x180+0+0")
         menu.transient(self)
         menu.grab_set()
         menu.overrideredirect(True)
-        x = self.winfo_x() + self.winfo_width() - 190
-        y = self.winfo_y() + 80
-        menu.geometry(f"160x140+{x}+{y}")
+        x = min(self.winfo_x() + self.winfo_width() - 190, self.winfo_screenwidth() - 170)
+        y = min(self.winfo_y() + 80, self.winfo_screenheight() - 200)
+        menu.geometry(f"160x180+{x}+{y}")
         menu.configure(fg_color=SURFACE)
         for text, cmd in (
+            ("Configuracoes", self._open_settings),
             ("Sobre", self._show_about_dialog),
             ("Registro", self._show_changelog_dialog),
             ("Ajuda", self._show_help_dialog),
@@ -537,13 +671,17 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         menu.bind("<FocusOut>", lambda _: menu.destroy())
 
     def _update_severity_count_labels_in_sidebar(self, findings: list[DetectionFinding]):
+        counts = Counter(f.severity for f in findings)
         for severity, count_label in self._severity_count_labels.items():
-            count = sum(1 for f in findings if f.severity == severity)
-            count_label.configure(text=str(count) if count > 0 else "0")
+            count_label.configure(text=str(counts.get(severity, 0)))
 
     def _clear_all_scan_results(self):
         self._remove_skeleton_loaders()
         self._all_findings = []
+        self._finding_cards = []
+        self._selected_card = None
+        self._last_result = None
+        self._current_finding = None
         self._findings_count_badge.configure(text="")
         for widget in self._findings_scrollable_list.winfo_children():
             widget.destroy()
@@ -558,42 +696,17 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         self._finding_detail_textbox.configure(state="normal")
         self._finding_detail_textbox.delete("1.0", "end")
         self._finding_detail_textbox.configure(state="disabled")
+        self._timeline_view.clear()
+        self._correlation_view.clear()
+        self._risk_meter.set_risk(0)
+        self._stats_frame.update(0, 0, 0, 0)
         for count_label in self._severity_count_labels.values():
             count_label.configure(text="\u2014")
         self._scan_progress_bar.set(0)
         self._scan_progress_percentage_label.configure(text="")
+        self._scan_current_file_label.configure(text="")
         self._status_dot.configure(text_color=SUCCESS)
         self._update_status_bar_message("Pronto. Selecione uma pasta e inicie o scan.")
-
-    # ——— Scroll helpers ———
-    @staticmethod
-    def _enable_scroll_on_frame(frame: ctk.CTkScrollableFrame):
-        try:
-            canvas = frame._parent_canvas
-        except AttributeError:
-            return
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _bind_recursive(widget):
-            widget.bind("<MouseWheel>", _on_mousewheel, add="+")
-            for child in widget.winfo_children():
-                _bind_recursive(child)
-
-        _bind_recursive(frame)
-
-    @staticmethod
-    def _enable_scroll_on_textbox(textbox: ctk.CTkTextbox):
-        def _on_mousewheel(event):
-            textbox.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _bind_recursive(widget):
-            widget.bind("<MouseWheel>", _on_mousewheel, add="+")
-            for child in widget.winfo_children():
-                _bind_recursive(child)
-
-        _bind_recursive(textbox)
 
     # ——— Info dialogs ———
     def _show_info_dialog(self, title: str, content: str, width: int = 580, height: int = 420):
@@ -606,7 +719,6 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         textbox.pack(fill="both", expand=True, padx=12, pady=12)
         textbox.insert("1.0", content)
         textbox.configure(state="disabled")
-        self._enable_scroll_on_textbox(textbox)
 
     def _show_about_dialog(self):
         content = (
@@ -681,25 +793,79 @@ class VSCodeSecurityScannerApp(ctk.CTk):
         )
         self._show_info_dialog("Ajuda", content, width=540, height=500)
 
-    def _export_current_findings_as_json(self):
-        if not self._all_findings:
+    def _export_current_findings(self):
+        if not self._last_result:
             messagebox.showinfo(
                 "Sem dados",
                 "Nenhum achado para exportar.\nRealize um scan primeiro.",
             )
             return
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file_path = filedialog.asksaveasfilename(
+        output_path = filedialog.asksaveasfilename(
             title="Salvar relat\u00f3rio de seguran\u00e7a",
             defaultextension=".json",
-            filetypes=[("JSON", "*.json"), ("Todos os arquivos", "*.*")],
+            filetypes=[
+                ("JSON", "*.json"),
+                ("Markdown", "*.md"),
+                ("HTML", "*.html"),
+                ("PDF", "*.pdf"),
+                ("Todos os arquivos", "*.*"),
+            ],
             initialfile=f"security_report_{timestamp}.json",
         )
-        if not output_file_path:
+        if not output_path:
             return
-        export_findings_report_as_json(self._all_findings, Path(output_file_path))
-        self._update_status_bar_message(f"Relat\u00f3rio exportado: {output_file_path}")
-        messagebox.showinfo("Relat\u00f3rio salvo", f"Arquivo salvo em:\n{output_file_path}")
+        p = Path(output_path)
+        ext = p.suffix.lower()
+        try:
+            if ext == ".json":
+                JSONReport().save(self._last_result, p)
+            elif ext == ".md":
+                MarkdownReport().save(self._last_result, p)
+            elif ext == ".html":
+                HTMLReport().save(self._last_result, p)
+            elif ext == ".pdf":
+                PDFReport().save(self._last_result, p)
+            else:
+                JSONReport().save(self._last_result, p)
+            self._update_status_bar_message(f"Relat\u00f3rio exportado: {output_path}")
+            messagebox.showinfo("Relat\u00f3rio salvo", f"Arquivo salvo em:\n{output_path}")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao exportar relat\u00f3rio:\n{e}")
+
+    def _open_ioc_inspector(self):
+        if not self._all_findings:
+            messagebox.showinfo("Sem dados", "Realize um scan primeiro.")
+            return
+        IOCInspectorDialog(self, self._all_findings)
+
+    def _open_file_inspector(self):
+        if not self._current_finding:
+            messagebox.showinfo("Sem seleção", "Selecione um achado primeiro.")
+            return
+        fp = self._current_finding.file_path
+        try:
+            content = fp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            content = "(erro ao ler arquivo)"
+        FileInspectorDialog(self, fp, content, [self._current_finding.to_dict()])
+
+    def _open_settings(self):
+        settings = {
+            "project": True,
+            "git": True,
+            "docker": True,
+            "env": True,
+            "yaml": True,
+            "global_vscode": True,
+            "export_format": "json",
+        }
+        SettingsDialog(self, settings, on_save=self._on_settings_save)
+
+    def _on_settings_save(self, settings: dict) -> None:
+        self._should_scan_global_vscode.set(
+            settings.get("global_vscode", True)
+        )
 
     def _update_status_bar_message(self, message: str):
         self.after(0, lambda: self._status_message_label.configure(text=message))

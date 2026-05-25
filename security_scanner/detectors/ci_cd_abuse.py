@@ -10,12 +10,12 @@ from security_scanner.parsers import parse_yaml_file, HAS_YAML
 
 
 class CICDAbuseDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        CICDAbuseDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("ci_cd_abuse", CICDAbuseDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("ci_cd_abuse", self._finding_index)
 
     def detect_actions_pipe_shell(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Vector 71: curl pipe bash em Actions"""

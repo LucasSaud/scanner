@@ -13,12 +13,12 @@ from security_scanner.signatures.regex_signatures import PERSISTENCE_PATTERNS
 
 
 class PersistenceDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        PersistenceDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("persistence", PersistenceDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("persistence", self._finding_index)
 
     # ── Git Persistence ──────────────────────────────────────────────────
 

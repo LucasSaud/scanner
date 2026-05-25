@@ -11,12 +11,12 @@ from security_scanner.utils.text_utils import find_suspicious_terms_in_text
 
 
 class ContainerEscapeDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        ContainerEscapeDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("container_escape", ContainerEscapeDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("container_escape", self._finding_index)
 
     def detect_docker_sock_mount(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Vector 79: docker.sock mounts"""

@@ -6,6 +6,7 @@ from pathlib import Path
 from security_scanner.models import DetectionFinding
 
 DEFAULT_ENCODINGS = ["utf-8", "latin-1", "cp1252"]
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB default; overridden by config if available
 
 
 class BaseScanner(ABC):
@@ -23,6 +24,11 @@ class BaseScanner(ABC):
         ...
 
     def read_file_safe(self, file_path: Path) -> str:
+        try:
+            if file_path.stat().st_size > MAX_FILE_SIZE_BYTES:
+                return ""
+        except OSError:
+            return ""
         for enc in DEFAULT_ENCODINGS:
             try:
                 return file_path.read_text(encoding=enc)

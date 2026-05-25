@@ -14,12 +14,12 @@ ioc_db = IOCDatabase()
 
 
 class ExfiltrationDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        ExfiltrationDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("exfiltration", ExfiltrationDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("exfiltration", self._finding_index)
 
     def detect_env_dump(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Detect env dump patterns"""

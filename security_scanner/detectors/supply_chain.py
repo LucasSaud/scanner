@@ -23,12 +23,12 @@ npm_hooks = config.npm_auto_hooks
 
 
 class SupplyChainDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id(category: str = "supply_chain") -> str:
-        SupplyChainDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id(category, SupplyChainDetector.FINDING_INDEX[0])
+    def _next_id(self, category: str = "supply_chain") -> str:
+        self._finding_index += 1
+        return generate_finding_id(category, self._finding_index)
 
     # ── npm ──────────────────────────────────────────────────────────────
 
@@ -213,24 +213,29 @@ class SupplyChainDetector:
         return findings
 
     def detect_bin_hijacking(self, file_path: Path, content: str) -> list[DetectionFinding]:
-        """Vector 7: node_modules/.bin hijacking"""
+        """Vector 7: node_modules/.bin hijacking — only in executable scripts, not docs/READMEs"""
         findings = []
+        doc_exts = {".md", ".txt", ".rst", ".adoc"}
+        if file_path.suffix.lower() in doc_exts:
+            return findings
         if "node_modules/.bin" in content:
-            findings.append(DetectionFinding(
-                id=self._next_id(), severity="HIGH", score=70.0,
-                file_path=file_path, evidence=content[:200],
-                category="supply_chain",
-                description="Referencia a node_modules/.bin - possivel hijacking de binario de dependencia.",
-                recommendation="Nao referencie node_modules/.bin diretamente. Use npx ou scripts do package.json.",
-                detected_terms=["node_modules/.bin hijacking"],
-            ))
+            # Only flag if it looks like an active path reference (assignment, execution, shebang)
+            if re.search(r'(?:=|["\']|`|^)\s*(?:\./)?node_modules/\.bin/', content, re.MULTILINE):
+                findings.append(DetectionFinding(
+                    id=self._next_id(), severity="HIGH", score=70.0,
+                    file_path=file_path, evidence=content[:200],
+                    category="supply_chain",
+                    description="Referencia executavel a node_modules/.bin - possivel hijacking de binario de dependencia.",
+                    recommendation="Nao referencie node_modules/.bin diretamente. Use npx ou scripts do package.json.",
+                    detected_terms=["node_modules/.bin hijacking"],
+                ))
         return findings
 
     def detect_node_options(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Vector 8: NODE_OPTIONS injections"""
         findings = []
         match = re.search(r'NODE_OPTIONS\s*=\s*["\']?([^"\'\n]+)', content)
-        if match and "--experimental" in match.group(1) or "--require" in match.group(1) or "--loader" in match.group(1):
+        if match and any(f in match.group(1) for f in ("--experimental", "--require", "--loader")):
             findings.append(DetectionFinding(
                 id=self._next_id(), severity="HIGH", score=80.0,
                 file_path=file_path, evidence=match.group(0)[:200],
@@ -276,20 +281,21 @@ class SupplyChainDetector:
         return findings
 
     def detect_eslint_exec(self, file_path: Path, content: str) -> list[DetectionFinding]:
-        """Vector 11: ESLint plugin execution"""
+        """Vector 11: ESLint plugin execution — only JS/CJS configs, not static JSON"""
         findings = []
+        if file_path.suffix.lower() == ".json":
+            return findings
         text = content.lower()
-        if "plugins" in text or "extends" in text:
-            dangerous = [t for t in ["child_process", "exec(", "spawn(", "require(", "process.env"] if t in text]
-            if dangerous:
-                findings.append(DetectionFinding(
-                    id=self._next_id(), severity="HIGH", score=75.0,
-                    file_path=file_path, evidence=content[:300],
-                    category="supply_chain",
-                    description="Configuracao ESLint contem chamadas perigosas - plugins executam durante lint.",
-                    recommendation="Audite os plugins ESLint. Plugins maliciosos podem executar codigo no lint.",
-                    detected_terms=dangerous,
-                ))
+        dangerous = [t for t in ["child_process", "exec(", "spawn(", "require(", "process.env"] if t in text]
+        if dangerous:
+            findings.append(DetectionFinding(
+                id=self._next_id(), severity="HIGH", score=75.0,
+                file_path=file_path, evidence=content[:300],
+                category="supply_chain",
+                description="Configuracao ESLint contem chamadas perigosas - plugins executam durante lint.",
+                recommendation="Audite os plugins ESLint. Plugins maliciosos podem executar codigo no lint.",
+                detected_terms=dangerous,
+            ))
         return findings
 
     def detect_prettier_rce(self, file_path: Path, content: str) -> list[DetectionFinding]:
@@ -520,18 +526,19 @@ class SupplyChainDetector:
         return findings
 
     def detect_flake8_plugin(self, file_path: Path, content: str) -> list[DetectionFinding]:
-        """Vector 28: flake8 malicious plugins"""
+        """Vector 28: flake8 malicious plugins — require exec-class terms, not generic lint terms"""
         findings = []
         text = content.lower()
-        terms = find_suspicious_terms_in_text(text)
-        if terms:
+        exec_terms = [t for t in ["exec(", "eval(", "subprocess", "os.system", "child_process",
+                                   "curl", "wget", "base64"] if t in text]
+        if exec_terms:
             findings.append(DetectionFinding(
                 id=self._next_id(), severity="HIGH", score=70.0,
                 file_path=file_path, evidence=content[:300],
                 category="supply_chain",
-                description="Configuracao flake8 contem termos suspeitos - plugins executam durante lint.",
-                recommendation="Audite as configs do flake8.",
-                detected_terms=terms,
+                description="Configuracao flake8 contem chamadas de execucao suspeitas - plugins executam durante lint.",
+                recommendation="Audite as configs e plugins do flake8.",
+                detected_terms=exec_terms,
             ))
         return findings
 

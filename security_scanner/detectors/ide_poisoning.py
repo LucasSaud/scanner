@@ -12,12 +12,12 @@ from security_scanner.config import config
 
 
 class IDEPoisoningDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        IDEPoisoningDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("ide_poisoning", IDEPoisoningDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("ide_poisoning", self._finding_index)
 
     def detect_obfuscated_tasks(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Vector 65: VSCode obfuscated tasks"""

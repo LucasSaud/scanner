@@ -47,13 +47,15 @@ class TelemetryLogger:
             cache_logger_on_first_use=True,
         )
         level = getattr(logging, log_level.upper(), logging.INFO)
+        handlers: list[logging.Handler] = [
+            logging.FileHandler(str(self.log_file), encoding="utf-8"),
+        ]
+        if sys.stdout.isatty():
+            handlers.append(logging.StreamHandler(sys.stdout))
         logging.basicConfig(
             format="%(message)s",
             level=level,
-            handlers=[
-                logging.FileHandler(str(self.log_file), encoding="utf-8"),
-                logging.StreamHandler(sys.stdout),
-            ],
+            handlers=handlers,
         )
         self._logger = logging.getLogger("scanner")
 

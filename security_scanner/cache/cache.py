@@ -61,6 +61,7 @@ class ScanCache:
         self._ttl_hours = ttl_hours
         self._lock = threading.Lock()
         self._cache: dict[str, CacheEntry] = {}
+        self._dirty = False
         self._load()
 
     def _load(self) -> None:
@@ -82,8 +83,14 @@ class ScanCache:
             self._cache_path.write_text(
                 json.dumps(data, indent=2), encoding="utf-8"
             )
+            self._dirty = False
         except Exception:
             pass
+
+    def flush(self) -> None:
+        with self._lock:
+            if self._dirty:
+                self._save()
 
     def _path_key(self, file_path: Path) -> str:
         try:
@@ -99,9 +106,16 @@ class ScanCache:
                 return False
             if entry.is_expired(self._ttl_hours):
                 del self._cache[key]
-                self._save()
+                self._dirty = True
                 return False
-        return not entry.is_stale(file_path)
+            # Copy entry under lock to avoid TOCTOU
+            entry_copy = CacheEntry(
+                mtime=entry.mtime,
+                content_hash=entry.content_hash,
+                findings_hash=entry.findings_hash,
+                cached_at=entry.cached_at,
+            )
+        return not entry_copy.is_stale(file_path)
 
     def mark_cached(self, file_path: Path, mtime: float,
                     content_hash: str, findings_hash: str) -> None:
@@ -127,7 +141,8 @@ class ScanCache:
     def invalidate(self, file_path: Path) -> None:
         key = self._path_key(file_path)
         with self._lock:
-            self._cache.pop(key, None)
+            if self._cache.pop(key, None) is not None:
+                self._dirty = True
             self._save()
 
     def invalidate_prefix(self, prefix: Path) -> int:

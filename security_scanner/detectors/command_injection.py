@@ -13,12 +13,12 @@ from security_scanner.signatures.command_signatures import COMMAND_SIGNATURES
 
 
 class CommandInjectionDetector:
-    FINDING_INDEX = [0]
+    def __init__(self):
+        self._finding_index = 0
 
-    @staticmethod
-    def _next_id() -> str:
-        CommandInjectionDetector.FINDING_INDEX[0] += 1
-        return generate_finding_id("command_injection", CommandInjectionDetector.FINDING_INDEX[0])
+    def _next_id(self) -> str:
+        self._finding_index += 1
+        return generate_finding_id("command_injection", self._finding_index)
 
     def detect_eval_patterns(self, file_path: Path, content: str) -> list[DetectionFinding]:
         """Detect eval/exec patterns"""

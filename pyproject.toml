@@ -18,7 +18,7 @@ ast = ["esprima>=1.1.0"]
 Repository = "https://github.com/lucas/scanner"
 
 [tool.setuptools.packages.find]
-include = ["scanner_engine*", "gui*", "models*", "cli*", "main*", "security_scanner*"]
+include = ["gui*", "cli*", "main*", "security_scanner*"]
 
 [dependency-groups]
 dev = [

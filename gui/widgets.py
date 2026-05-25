@@ -2,7 +2,7 @@ from typing import Callable, Optional
 
 import customtkinter as ctk
 
-from models import (
+from security_scanner.models import (
     DetectionFinding,
     SEVERITY_BADGE_BG_COLOR,
     SEVERITY_BADGE_TEXT_COLOR,
@@ -31,8 +31,8 @@ class FindingCard(ctk.CTkFrame):
             border_color=CARD_BORDER,
             cursor="pointinghand",
         )
+        self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=0)
         self._build()
         self._bind_events()
 
@@ -47,23 +47,27 @@ class FindingCard(ctk.CTkFrame):
         self._strip.grid(row=0, column=0, rowspan=2, sticky="ns")
         self._strip.grid_propagate(False)
 
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.grid(row=0, column=1, sticky="ew", padx=(6, 12), pady=(10, 0))
+        header_frame.grid_columnconfigure(1, weight=1)
+
         icon = ctk.CTkLabel(
-            self,
+            header_frame,
             text=SEVERITY_ICON[self.finding.severity],
             text_color=strip_color,
             font=ctk.CTkFont(size=10),
             width=18,
         )
-        icon.grid(row=0, column=1, padx=(6, 0), pady=(10, 0), sticky="w")
+        icon.grid(row=0, column=0, sticky="w")
 
         self._file_label = ctk.CTkLabel(
-            self,
+            header_frame,
             text=str(self.finding.file_path.name),
             font=ctk.CTkFont(family="Menlo", size=11),
             text_color=("gray45", "gray65"),
             anchor="w",
         )
-        self._file_label.grid(row=0, column=2, pady=(10, 0), sticky="w")
+        self._file_label.grid(row=0, column=1, sticky="w", padx=(6, 0))
 
         self._desc_label = ctk.CTkLabel(
             self,
@@ -71,9 +75,9 @@ class FindingCard(ctk.CTkFrame):
             font=ctk.CTkFont(size=12),
             anchor="w",
             justify="left",
-            wraplength=480,
+            wraplength=0,
         )
-        self._desc_label.grid(row=1, column=1, columnspan=2, padx=(6, 12), pady=(2, 10), sticky="w")
+        self._desc_label.grid(row=1, column=1, sticky="ew", padx=(6, 12), pady=(2, 10))
 
     def _bind_events(self):
         def _on_click(_e):
@@ -134,6 +138,9 @@ class SkeletonCard(ctk.CTkFrame):
         self._pulse()
 
     def _pulse(self):
+        if not self.winfo_exists():
+            self._pulse_id = None
+            return
         from math import sin
         self._pulse_alpha = 0.3 + abs(sin(self._pulse_alpha * 3.14)) * 0.2
         alpha = max(0.2, min(0.5, self._pulse_alpha))
